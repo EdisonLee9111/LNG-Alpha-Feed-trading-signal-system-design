@@ -1,0 +1,11 @@
+# Environment secrets
+.env
+
+# Runtime data
+data/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
