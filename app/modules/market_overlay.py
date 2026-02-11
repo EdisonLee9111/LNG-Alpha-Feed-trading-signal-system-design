@@ -21,10 +21,11 @@ import pandas as pd
 import yfinance as yf
 
 
-def _to_utc_naive(ts: datetime) -> datetime:
+def _to_utc_aware(ts: datetime) -> datetime:
+    """确保 timestamp 是 UTC aware，用于和 pandas tz-aware index 对比。"""
     if ts.tzinfo is None:
-        return ts
-    return ts.astimezone(timezone.utc).replace(tzinfo=None)
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
 def _fetch_price(symbol: str, start: datetime, end: datetime) -> pd.Series | None:
@@ -90,7 +91,7 @@ def build_overlay_chart(
     rows = math.ceil(n / cols)
 
     fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 3.5 * rows), squeeze=False)
-    alert_naive = _to_utc_naive(alert_ts)
+    alert_utc = _to_utc_aware(alert_ts)
 
     for idx, (sym, close) in enumerate(ticker_data):
         r, c = divmod(idx, cols)
@@ -100,8 +101,15 @@ def build_overlay_chart(
         y = close.values
         ax.plot(x, y, linewidth=1.2, color="#1f77b4")
 
-        # 对齐告警时间到最近的 K 线点
-        nearest = min(range(len(x)), key=lambda i: abs(x[i].to_pydatetime() - alert_naive))
+        # 对齐告警时间到最近的 K 线点（统一用 aware datetime 对比）
+        def _ts_dist(i: int) -> float:
+            pt = x[i].to_pydatetime()
+            # pandas 可能返回 naive 或 aware，统一处理
+            if pt.tzinfo is None:
+                pt = pt.replace(tzinfo=timezone.utc)
+            return abs((pt - alert_utc).total_seconds())
+
+        nearest = min(range(len(x)), key=_ts_dist)
         ax.annotate(
             "Alert",
             xy=(x[nearest], float(y[nearest])),

@@ -59,17 +59,13 @@ class FastClassifier:
                 matched_rules.append(category)
                 all_tickers.extend(ASSET_MAP.get(category, []))
 
-        # ---- 3. 确定主类别 ----
-        if matched_rules:
-            # 优先级：取第一个命中的（规则字典有序）
-            primary_category = matched_rules[0]
-        else:
-            # 没命中任何核心规则 -> 通用能源新闻
-            primary_category = "GENERAL_ENERGY"
+        # ---- 3. 没命中任何核心规则 → 丢弃（不发告警） ----
+        if not matched_rules:
+            return None
 
-        # ---- 4. 兜底 + 去重 ----
-        if not all_tickers:
-            all_tickers = list(DEFAULT_TICKERS)
+        primary_category = matched_rules[0]
+
+        # ---- 4. 去重 ----
         unique_tickers = list(dict.fromkeys(all_tickers))  # 保序去重
 
         return ClassifiedSignal(
