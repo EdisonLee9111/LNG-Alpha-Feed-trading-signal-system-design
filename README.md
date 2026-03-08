@@ -16,8 +16,8 @@ This system treats news as a **state-conditional signal**: an identical facility
 
 This repository is one crucial node in a three-part structural analysis ecosystem for global gas markets:
 1. **LNG-Alpha-Feed [This Repo]**: *The Radar*. Captures real-time streaming data, generating state-conditional natural language alerts.
-2. **[Alpha-Discovery (Event Study)](https://github.com/EdisonLee9111/LNG-Alpha-Event-Study)**: *The Laboratory*. Consumes the historical output from this feed to rigorously quantify the structural market impact, performing academic-style placebo testing and state-conditional event studies.
-3. **[LNG_Arbitrage_Monitor](https://github.com/EdisonLee9111/LNG_Arbitrage_Monitor)**: *The Executioner*. Real-time pricing dashboard tracking the physical bounds of inter-basin arbitrage (US to EU/Asia), acting on the structural shifts identified by the Feed and Event Study.
+2. **[Structural-Event-Study-Framework-for-LNG-Energy-Markets](https://github.com/EdisonLee9111/Structural-Event-Study-Framework-for-LNG-Energy-Markets)**: *The Laboratory*. Consumes the historical output from this feed to rigorously quantify the structural market impact, performing academic-style placebo testing and state-conditional event studies.
+3. **[LNG_Arbitrage_Monitor](https://github.com/EdisonLee9111/-Global-LNG-Arbitrage-Monitor)**: *The Executioner*. Real-time pricing dashboard tracking the physical bounds of inter-basin arbitrage (US to EU/Asia), acting on the structural shifts identified by the Feed and Event Study.
 
 ## The Funnel Architecture: Fast Events meets Slow State
 
