@@ -1,10 +1,10 @@
-# LNG-Alpha-Feed 🌋
+# LNG-Alpha-Feed 
 
-Most generic energy sentiment tools treat news as absolute signals (e.g., "an outage is bullish"). This system treats news as a **state-conditional signal**: an identical facility outage report will generate divergent directions and confidence intervals depending on whether it occurs during a tight, low-inventory winter or a loose, over-supplied summer. 
+This system treats news as a **state-conditional signal**: an identical facility outage report will generate divergent directions and confidence intervals depending on whether it occurs during a tight, low-inventory winter or a loose, over-supplied summer. 
 
 `LNG-Alpha-Feed` is a high-performance, real-time social media intelligence radar purpose-built for the global Liquefied Natural Gas (LNG) market. It ingests the Bluesky Firehose, filters for structural supply/demand events, and cross-references them against live market tension states (inventory percentiles, futures curve backwardation, volatility) to generate institutional-grade context-aware intelligence.
 
-## 🏗️ Implementation Status
+## Implementation Status
 
 - [x] **Real-time Firehose Ingestion**: Bluesky Jetstream integration & async queuing.
 - [x] **Event Filtration**: Millisecond keyword & whitelist filtering engine (`FastClassifier`).
@@ -12,12 +12,12 @@ Most generic energy sentiment tools treat news as absolute signals (e.g., "an ou
 - [ ] **Market State Injection**: Background async polling for inventory/Curve data (`MarketStateManager` - *In Development*).
 - [ ] **State-Conditional LLM Engine**: Prompt engineering and dynamic context injection for the sentiment engine - (*In Development*).
 
-## 🌍 The "Alpha-Discovery" Project Ecosystem
+## The "Alpha-Discovery" Project Ecosystem
 
 This repository is one crucial node in a three-part structural analysis ecosystem for global gas markets:
-1. **LNG-Alpha-Feed [This Repo]**: 🌊 *The Radar*. Captures real-time streaming data, generating state-conditional natural language alerts.
-2. **[Alpha-Discovery (Event Study)](https://github.com/EdisonLee9111/LNG-Alpha-Event-Study)**: 🔬 *The Laboratory*. Consumes the historical output from this feed to rigorously quantify the structural market impact, performing academic-style placebo testing and state-conditional event studies.
-3. **[LNG_Arbitrage_Monitor](https://github.com/EdisonLee9111/LNG_Arbitrage_Monitor)**: ⚖️ *The Executioner*. Real-time pricing dashboard tracking the physical bounds of inter-basin arbitrage (US to EU/Asia), acting on the structural shifts identified by the Feed and Event Study.
+1. **LNG-Alpha-Feed [This Repo]**: *The Radar*. Captures real-time streaming data, generating state-conditional natural language alerts.
+2. **[Alpha-Discovery (Event Study)](https://github.com/EdisonLee9111/LNG-Alpha-Event-Study)**: *The Laboratory*. Consumes the historical output from this feed to rigorously quantify the structural market impact, performing academic-style placebo testing and state-conditional event studies.
+3. **[LNG_Arbitrage_Monitor](https://github.com/EdisonLee9111/LNG_Arbitrage_Monitor)**: *The Executioner*. Real-time pricing dashboard tracking the physical bounds of inter-basin arbitrage (US to EU/Asia), acting on the structural shifts identified by the Feed and Event Study.
 
 ## The Funnel Architecture: Fast Events meets Slow State
 
@@ -25,58 +25,49 @@ The system is designed to handle high-velocity, high-noise social streams with z
 
 *(Note: The Market Context mechanism below relies on the principle that Large Language Models perform vastly superior probabilistic reasoning when anchored by deterministic numerical context, akin to Retrieval-Augmented Generation (RAG) paradigms for time-series states).*
 
-```mermaid
-flowchart TD
-    %% Define styles
-    classDef external fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef hotpath fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef coldpath fill:#bfb,stroke:#333,stroke-width:2px;
-    classDef output fill:#fbb,stroke:#333,stroke-width:2px;
+### Architecture: Data Flow & Subsystems
 
-    %% External Data Sources
-    subgraph External Sources
-        BSKY[Bluesky Jetstream Firehose]:::external
-        YF[Yahoo Finance / EIA / AGSI]:::external
-    end
+```text
+  [ Hot Path: Real-Time Funnel ]          [ Cold Path: Market Context ]
 
-    %% Cold Path
-    subgraph Market Context (Cold Path)
-        MSM[Market State Manager\n(Background Async Task)]:::coldpath
-        CACHE[(In-Memory State Snapshot)]:::coldpath
-        MSM -- Polls Every 5-30 mins --> YF
-        MSM -. Updates .-> CACHE
-        YF -. progressive fallback/retries .-> MSM
-    end
-
-    %% Hot Path Funnel
-    subgraph Real-Time Funnel (Hot Path)
-        HARV[Harvester\nWhitelist & Keyword Filter]:::hotpath
-        Q1[Async Queue]:::hotpath
-        FC[Fast Classifier\nMillisecond Rules Engine]:::hotpath
-        LLM[Async Sentiment Engine\nState-Conditional Logic]:::hotpath
-    end
-
-    %% Signal Outputs
-    subgraph Watchtower & Alerting
-        TELE[Telegram Bot Alerts]:::output
-        DASH[Streamlit Real-Time Dashboard]:::output
-        OVERLAY[Market Overlay Charts]:::output
-    end
-
-    %% Data Flow
-    BSKY -->|WebSocket Streaming| HARV
-    HARV -->|Cleaned Text| Q1
-    Q1 --> FC
-    FC -- "Noise (Discarded)" --> devnull(("Discard"))
-    FC -- "Structural Event + Tickers" --> LLM
-    CACHE -- "Instant Read (Zero Latency)" --> FC
-
-    %% The Injection: Crucial Step
-    CACHE -. "Inject Market Percentiles\n(Inventories, Spreads, Volatility)" .-> LLM
-    
-    LLM -->|Context-Aware Signal\n(Bullish/Bearish/Neutral + Reason)| TELE
-    LLM --> DASH
-    LLM --> OVERLAY
+      (Bluesky Firehose)                     (Yahoo/EIA/AGSI Data)
+              │                                        │
+              ▼                                        ▼
+      ┌───────────────┐                       ┌─────────────────┐
+      │   Harvester   │                       │  Market State   │
+      │ (Whitelisting │                       │    Manager      │
+      │  & Filtering) │                       │ (Async Polling) │
+      └───────┬───────┘                       └────────┬────────┘
+              │                                        │
+              ▼                                        ▼
+      ┌───────────────┐                       ┌─────────────────┐
+      │  Async Queue  │                       │ In-Memory State │
+      │ (Buffer Node) │                       │    Snapshot     │
+      └───────┬───────┘                       └────────┬────────┘
+              │                                        │
+              ▼                                        │
+      ┌───────────────┐                            Instant 
+      │Fast Classifier│                          Zero-Latency
+      │ (Rules Engine)│<────────────────┼      Reads       │
+      │ Discards Noise│                 │      (Inventory, │
+      └───────┬───────┘                 │      Volatility, │
+              │ Events + Tickers        │      Spreads)    │
+              ▼                         │                  │
+      ┌───────────────┐                 │                  │
+      │Async Sentiment│                 │                  │
+      │    Engine     │<────────────────┘                  │
+      │(State-Condit. │                                    │
+      │    Logic)     │                                    │
+      └───────┬───────┘                                    │
+              │                                            │
+              ▼ Context-Aware Signals                      │
+       (Bullish / Bearish)                                 │
+              │                                            │
+              ├──► [ Telegram Bot Alerts ]                 │
+              │                                            │
+              ├──► [ Streamlit Dashboard ]                 │
+              │                                            │
+              └──► [ Market Overlay Charts ]               │
 ```
 
 ## Key Architectural Decisions
