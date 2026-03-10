@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from app.models import SignalEvent
 from app.modules.classifier import FastClassifier
 from app.modules.harvester import JetstreamClient
+from app.modules.market_state import MarketStateManager # newly added
 from app.modules.sentiment import AsyncSentimentAnalyzer
 from app.modules.watchtower import Watchtower
 
@@ -51,6 +52,7 @@ async def process_text(
     classifier: FastClassifier,
     sentiment_engine: AsyncSentimentAnalyzer,
     watchtower: Watchtower,
+    market_state_manager: MarketStateManager = None,
 ) -> None:
     """单条文本走完整个漏斗。"""
     # ---- 第一层: 毫秒级分类 ----
@@ -67,7 +69,9 @@ async def process_text(
     )
 
     # ---- 第二层: 异步情绪分析 ----
-    result = await sentiment_engine.analyze(text)
+    # 获取实时无延迟的市场状态快照
+    state_snapshot = market_state_manager.get_current_state() if market_state_manager else None
+    result = await sentiment_engine.analyze(text, state_snapshot)
     logger.info(
         "🧠 情绪  %s (%.0f%%)  %s",
         result.sentiment,
@@ -102,13 +106,14 @@ async def worker(
     classifier: FastClassifier,
     sentiment_engine: AsyncSentimentAnalyzer,
     watchtower: Watchtower,
+    market_state_manager: MarketStateManager,
     worker_id: int,
 ) -> None:
     logger.info("Worker-%d started", worker_id)
     while True:
         text, author = await queue.get()
         try:
-            await process_text(text, author, classifier, sentiment_engine, watchtower)
+            await process_text(text, author, classifier, sentiment_engine, watchtower, market_state_manager)
         except Exception:
             logger.exception("Worker-%d error processing: %.60s", worker_id, text)
         finally:
@@ -128,13 +133,15 @@ async def run_live() -> None:
     classifier = FastClassifier()
     sentiment_engine = AsyncSentimentAnalyzer()
     watchtower = Watchtower()
+    market_state_manager = MarketStateManager()
     harvester = JetstreamClient(output_queue=queue)
 
-    # 启动 harvester + 2 个 worker
+    # 启动 harvester + state polling + workers
     tasks = [
+        asyncio.create_task(market_state_manager.start()),
         asyncio.create_task(harvester.start()),
-        asyncio.create_task(worker(queue, classifier, sentiment_engine, watchtower, 1)),
-        asyncio.create_task(worker(queue, classifier, sentiment_engine, watchtower, 2)),
+        asyncio.create_task(worker(queue, classifier, sentiment_engine, watchtower, market_state_manager, 1)),
+        asyncio.create_task(worker(queue, classifier, sentiment_engine, watchtower, market_state_manager, 2)),
     ]
     await asyncio.gather(*tasks)
 
@@ -151,6 +158,11 @@ async def run_test() -> None:
     classifier = FastClassifier()
     sentiment_engine = AsyncSentimentAnalyzer()
     watchtower = Watchtower()
+    market_state_manager = MarketStateManager()
+    # For testing, we can simply launch the state manager as a background task
+    # and wait a brief moment for phase 1 bootstrap.
+    bg_task = asyncio.create_task(market_state_manager.start())
+    await asyncio.sleep(2) # Give it time to fetch Yahoo data
 
     test_tweets = [
         ("Just a webinar about climate change targets.", "@noise_account"),
@@ -161,9 +173,10 @@ async def run_test() -> None:
     ]
 
     for text, author in test_tweets:
-        await process_text(text, author, classifier, sentiment_engine, watchtower)
+        await process_text(text, author, classifier, sentiment_engine, watchtower, market_state_manager)
 
     logger.info("Test mode complete.")
+    bg_task.cancel()
 
 
 # =========================================================================

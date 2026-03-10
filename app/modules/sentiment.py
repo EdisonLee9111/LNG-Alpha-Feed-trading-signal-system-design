@@ -53,9 +53,11 @@ SYSTEM_PROMPT = (
     "You are an LNG/Energy Trading Assistant.\n"
     "Analyze the following headline or tweet.\n"
     "Determine if it is BULLISH, BEARISH, or NEUTRAL for JKM/TTF spot prices.\n"
+    "{market_context}\n"
     "Output **JSON only** with exactly these fields:\n"
-    '{"sentiment": "BULLISH", "confidence": 0.9, "reason": "short one-line summary"}\n'
-    "Do NOT output anything outside the JSON object."
+    '{{"sentiment": "BULLISH", "confidence": 0.9, "reason": "short one-line summary"}}\n'
+    "If the event causes divergent outcomes between US (HH) and EU/Asia (TTF/JKM), you MUST explicitly articulate the bifurcation in the reason statement.\n"
+    "Do NOT output anything outside the JSON object or conversational fillers."
 )
 
 
@@ -77,22 +79,24 @@ class AsyncSentimentAnalyzer:
     # ------------------------------------------------------------------
     # 公开接口
     # ------------------------------------------------------------------
-    async def analyze(self, text: str) -> SentimentResult:
-        """根据文本返回情绪判断。LLM 可用时走 API，否则本地规则。"""
+    async def analyze(self, text: str, state_snapshot=None) -> SentimentResult:
+        """根据文本和市场快照返回情绪判断。LLM 可用时走 API，否则本地规则。"""
         if self._llm_client is not None:
-            return await self._analyze_llm(text)
+            return await self._analyze_llm(text, state_snapshot)
         return self._analyze_local(text)
 
     # ------------------------------------------------------------------
     # LLM 路径 (秒级, IO-bound)
     # ------------------------------------------------------------------
-    async def _analyze_llm(self, text: str) -> SentimentResult:
+    async def _analyze_llm(self, text: str, state_snapshot=None) -> SentimentResult:
+        context_str = state_snapshot.get_context_string() if state_snapshot else "Market Context: None available."
+        formatted_prompt = SYSTEM_PROMPT.format(market_context=context_str)
         try:
             resp = await self._llm_client.chat.completions.create(  # type: ignore[union-attr]
                 model=settings.LLM_MODEL,
                 temperature=0.0,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": formatted_prompt},
                     {"role": "user", "content": text},
                 ],
                 response_format={"type": "json_object"},

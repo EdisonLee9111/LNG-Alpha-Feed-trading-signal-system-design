@@ -9,8 +9,8 @@ This system treats news as a **state-conditional signal**: an identical facility
 - [x] **Real-time Firehose Ingestion**: Bluesky Jetstream integration & async queuing.
 - [x] **Event Filtration**: Millisecond keyword & whitelist filtering engine (`FastClassifier`).
 - [x] **Telemetry & Alerting**: Telegram Bot integration & Streamlit overlay dashboard (`Watchtower`).
-- [ ] **Market State Injection**: Background async polling for inventory/Curve data (`MarketStateManager` - *In Development*).
-- [ ] **State-Conditional LLM Engine**: Prompt engineering and dynamic context injection for the sentiment engine - (*In Development*).
+- [x] **Market State Injection**: Background async polling for inventory/Curve data (`MarketStateManager`).
+- [x] **State-Conditional LLM Engine**: Prompt engineering and dynamic context injection for the sentiment engine.
 
 ## The "Alpha-Discovery" Project Ecosystem
 
@@ -90,3 +90,6 @@ While the current MVP outputs a unified primary direction, the LLM utilizes a **
 
 ### 4. Dynamic Polling Intervals
 Market State polling actively modulates itself based on market hours. During active HH/TTF trading windows (e.g., 09:00-14:30 EST), the system refreshes volatility and curve spreads every **5 minutes**. During off-hours, it throttles polling down to **30-60 minutes** to preserve API rate limits without losing meaningful context.
+
+### 5. Evolution to Local Small Language Models (SLMs)
+While the current MVP utilizes external APIs (e.g., GPT-4o-mini) to rapidly validate the "Context-Aware Signal" logic, relying on external APIs introduces unacceptable latency, rate limiting risks during high-volatility events, and data privacy concerns for institutional-grade trading systems. Therefore, **transitioning to a miniaturized, locally deployed domain-specific model (SLM) is an inevitable technical refactoring in the project's lifecycle**. The current API calls effectively serve as a data pipeline to generate high-quality, structured CoT reasoning logs. Ultimately, these logs will be used to fine-tune a dedicated 7B-14B parameter local model (e.g., Llama-3, Qwen) on local GPU hardware, achieving a system with zero-latency, high-throughput signal execution that is entirely isolated from external rate limits.

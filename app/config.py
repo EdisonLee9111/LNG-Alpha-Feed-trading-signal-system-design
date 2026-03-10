@@ -109,6 +109,31 @@ class Settings:
     OVERLAY_LOOKBACK_HOURS: int = int(os.getenv("OVERLAY_LOOKBACK_HOURS", "12"))
     OVERLAY_OUTPUT_DIR: str = os.getenv("OVERLAY_OUTPUT_DIR", "data/overlays")
 
+    # -----------------------------------------------------------------------
+    # Market State Data Sources (APIs)
+    # -----------------------------------------------------------------------
+    # Yahoo Finance tickers for price & volatility baselines
+    MARKET_TICKERS: list[str] = field(default_factory=lambda: ["NG=F", "TTF=F", "JKM=F"])
+    
+    # 库存数据外部 API 预留
+    EIA_API_KEY: str = os.getenv("EIA_API_KEY", "").strip()
+    EIA_API_URL: str = "https://api.eia.gov/v2/natural-gas/stor/sum/data/"
+    
+    AGSI_API_KEY: str = os.getenv("AGSI_API_KEY", "").strip()
+    AGSI_API_URL: str = "https://agsi.gie.eu/api"
+
+    # -----------------------------------------------------------------------
+    # Polling Intervals (秒)
+    # -----------------------------------------------------------------------
+    # 活跃交易时段 (09:00 - 14:30 EST) 五分钟刷一次量价，盘后一小时一次
+    POLL_INTERVAL_ACTIVE: int = int(os.getenv("POLL_INTERVAL_ACTIVE", "300"))
+    POLL_INTERVAL_IDLE: int = int(os.getenv("POLL_INTERVAL_IDLE", "3600"))
+    
+    # 深度回溯的时间范围 (构建历史分位数基线)
+    BASELINE_DAYS_FAST: int = 90    # 冷启动第一阶段：快速抓过去 90 天
+    BASELINE_DAYS_DEEP: int = 365 * 3 # 稳定后异步精算：抓过去 3 年
+
+
     # LLM (留空 = 跳过 NLP 层，只走 FastClassifier)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
