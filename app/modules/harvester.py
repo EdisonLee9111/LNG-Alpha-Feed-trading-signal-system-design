@@ -1,16 +1,16 @@
 """
-Module 1: Harvester (数据采集层)
+Module 1: Harvester (Data Collection Layer)
 
-职责：
-  1. 连接 Bluesky Jetstream firehose (WebSocket)
-  2. 白名单过滤：只处理指定 DID / handle 的帖子
-  3. 跨品种关键词预筛：LNG / JEPX / Shipping 等
-  4. 输出干净的 (text, author) 元组到异步队列
+Responsibilities:
+  1. Connect to Bluesky Jetstream firehose (WebSocket)
+  2. Whitelist filtering: only process posts from specified DIDs / handles
+  3. Cross-commodity keyword pre-filtering: LNG / JEPX / Shipping etc.
+  4. Output clean (text, author) tuples to async queue
 
-运行模式 (HARVESTER_MODE):
-  "whitelist" — 仅白名单账户
-  "keyword"  — 全量帖子，仅靠关键词筛（白名单为空时推荐）
-  "both"     — 白名单账户全部通过 + 非白名单靠关键词筛
+Running modes (HARVESTER_MODE):
+  "whitelist" — whitelist accounts only
+  "keyword"  — all posts, filter by keywords only (recommended when whitelist is empty)
+  "both"     — all whitelist accounts pass + non-whitelist filtered by keywords
 """
 
 from __future__ import annotations
@@ -36,20 +36,20 @@ logger = logging.getLogger("harvester")
 
 
 # =========================================================================
-# 白名单过滤器
+# Whitelist Filter
 # =========================================================================
 
 class WhitelistFilter:
-    """按 DID 精确匹配 + handle 后缀匹配。"""
+    """DID exact match + handle suffix match."""
 
     def __init__(self) -> None:
         self._dids = {d.lower() for d in WHITELIST_DIDS if d}
         self._handles = {h.lower().lstrip("@") for h in WHITELIST_HANDLES if h}
-        # 启动时解析 handle → DID 并合并（可选，异步）
+        # On startup, resolve handle → DID and merge (optional, async)
         self._resolved_dids: set[str] = set()
 
     async def warm_up(self) -> None:
-        """启动时把 handle 解析成 DID，之后用 DID 直接匹配（更快）。"""
+        """On startup, resolve handles to DIDs for direct matching (faster)."""
         if not self._handles:
             return
         async with aiohttp.ClientSession() as session:
@@ -76,24 +76,24 @@ class WhitelistFilter:
 
 
 # =========================================================================
-# 关键词预筛
+# Keyword Pre-filtering
 # =========================================================================
 
 def _passes_keyword_filter(text: str) -> bool:
-    """跨品种关键词粗筛 — 在进入 FastClassifier 之前快速丢弃无关帖子。"""
+    """Cross-commodity keyword rough filter — quickly discard unrelated posts before FastClassifier."""
     t = text.lower()
     return any(kw in t for kw in CROSS_COMMODITY_KEYWORDS)
 
 
 # =========================================================================
-# Jetstream 消息解析
+# Jetstream Message Parsing
 # =========================================================================
 
 def _parse_jetstream_msg(raw: str) -> tuple[str, str] | None:
     """
-    解析 Jetstream JSON 消息，返回 (text, author_did) 或 None。
+    Parse Jetstream JSON message, return (text, author_did) or None.
 
-    Jetstream 消息结构:
+    Jetstream message structure:
       {
         "did": "did:plc:...",
         "time_us": 1234567890123456,
@@ -133,15 +133,15 @@ def _parse_jetstream_msg(raw: str) -> tuple[str, str] | None:
 
 
 # =========================================================================
-# JetstreamClient — 主采集器
+# JetstreamClient — Primary Harvester
 # =========================================================================
 
 class JetstreamClient:
     """
-    异步连接 Bluesky Jetstream firehose。
+    Async connection to Bluesky Jetstream firehose.
 
-    每条通过过滤的帖子以 (text, author_did) 放入 output_queue。
-    自动重连（指数退避，最大 60s）。
+    Each post passing filters is put into output_queue as (text, author_did).
+    Auto-reconnect with exponential backoff, max 60s.
     """
 
     def __init__(self, output_queue: asyncio.Queue[tuple[str, str]]) -> None:
@@ -151,7 +151,7 @@ class JetstreamClient:
         self._stats = {"received": 0, "passed_whitelist": 0, "passed_keyword": 0, "queued": 0}
 
     async def start(self) -> None:
-        """启动采集：预热白名单 → 连接 firehose → 循环读取。"""
+        """Start harvesting: warm up whitelist → connect to firehose → loop read."""
         await self.whitelist.warm_up()
         logger.info(
             "Harvester starting  mode=%s  whitelist_dids=%d  resolved=%d  keywords=%d",
@@ -175,7 +175,7 @@ class JetstreamClient:
                 backoff = min(backoff * 2, 60)
 
     async def _listen(self) -> None:
-        """单次 WebSocket 会话。"""
+        """Single WebSocket session."""
         logger.info("Connecting to Jetstream: %s", JETSTREAM_URL)
         async with websockets.connect(
             JETSTREAM_URL,
@@ -185,7 +185,7 @@ class JetstreamClient:
             close_timeout=5,
         ) as ws:
             logger.info("Connected to Jetstream firehose ✓")
-            # 连接成功，重置退避
+            # Connection successful, reset backoff
             await self._read_loop(ws)
 
     async def _read_loop(self, ws: ClientConnection) -> None:
@@ -198,7 +198,7 @@ class JetstreamClient:
 
             text, did = parsed
 
-            # --- 白名单 / 关键词 过滤 ---
+            # --- Whitelist / keyword filtering ---
             if not self._should_process(text, did):
                 continue
 
@@ -208,18 +208,18 @@ class JetstreamClient:
             except asyncio.QueueFull:
                 logger.warning("Output queue full, dropping message")
 
-            # 每 500 条打印一次统计
+            # Print stats every 500 posts
             if self._stats["queued"] % 500 == 0:
                 logger.info("Harvester stats: %s", self._stats)
 
     def _should_process(self, text: str, did: str) -> bool:
-        """根据 HARVESTER_MODE 决定是否放行。"""
+        """Decide whether to pass based on HARVESTER_MODE."""
         wl_hit = self.whitelist.is_whitelisted(did)
         kw_hit = _passes_keyword_filter(text)
 
         if self._mode == "whitelist":
             if self.whitelist.is_empty:
-                # 白名单为空 → 降级为关键词模式
+                # Whitelist is empty → degrade to keyword mode
                 self._stats["passed_keyword"] += int(kw_hit)
                 return kw_hit
             self._stats["passed_whitelist"] += int(wl_hit)
@@ -232,6 +232,6 @@ class JetstreamClient:
             self._stats["passed_keyword"] += int(kw_hit)
             return kw_hit
 
-        # mode == "keyword" (默认)
+        # mode == "keyword" (default)
         self._stats["passed_keyword"] += int(kw_hit)
         return kw_hit

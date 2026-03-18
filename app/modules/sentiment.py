@@ -1,12 +1,12 @@
 """
-Module: AsyncSentimentAnalyzer (漏斗第二层 - 秒级, 异步)
+Module: AsyncSentimentAnalyzer (Layer 2 - Second-level, async)
 
-职责：
-  只有通过 FastClassifier 筛选的高价值信号才到这一层。
-  调用 LLM API 判断 BULLISH / BEARISH / NEUTRAL。
-  如果 API key 未配置，降级为基于关键词的本地估算。
+Responsibilities:
+  Only high-value signals passing FastClassifier reach this layer.
+  Call LLM API to determine BULLISH / BEARISH / NEUTRAL.
+  If API key not configured, degrade to keyword-based local estimation.
 
-异步设计：不阻塞后续推文的处理。
+Async design: doesn't block processing of subsequent posts.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class SentimentResult:
 
 
 # ---------------------------------------------------------------------------
-# 供给中断关键词 -> 价格看涨; 恢复/重启 -> 价格看跌
+# Supply disruption keywords -> bullish on price; recovery/restart -> bearish on price
 # ---------------------------------------------------------------------------
 _BULLISH_RE = re.compile(
     r"(?i)(outage|strike|force majeure|shutdown|suspension|explosion|leak|evacuate|work ban|delay)",
@@ -63,30 +63,30 @@ SYSTEM_PROMPT = (
 
 class AsyncSentimentAnalyzer:
     """
-    漏斗第二层。
+    Layer 2.
 
-    优先走 LLM API（OPENAI_API_KEY 配置时）；
-    否则用本地规则快速估算（零延迟、零成本）。
+    Prefer LLM API (when OPENAI_API_KEY configured);
+    otherwise use local rules for quick estimation (zero latency, zero cost).
     """
 
     def __init__(self) -> None:
         self._llm_client = None
         if settings.OPENAI_API_KEY:
-            # 延迟导入，避免未安装 openai 时报错
+            # Lazy import to avoid error when openai not installed
             from openai import AsyncOpenAI
             self._llm_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
     # ------------------------------------------------------------------
-    # 公开接口
+    # Public Interface
     # ------------------------------------------------------------------
     async def analyze(self, text: str, state_snapshot=None) -> SentimentResult:
-        """根据文本和市场快照返回情绪判断。LLM 可用时走 API，否则本地规则。"""
+        """Return sentiment analysis based on text and market snapshot. Use API if LLM available, else local rules."""
         if self._llm_client is not None:
             return await self._analyze_llm(text, state_snapshot)
         return self._analyze_local(text)
 
     # ------------------------------------------------------------------
-    # LLM 路径 (秒级, IO-bound)
+    # LLM Path (second-level, IO-bound)
     # ------------------------------------------------------------------
     async def _analyze_llm(self, text: str, state_snapshot=None) -> SentimentResult:
         context_str = state_snapshot.get_context_string() if state_snapshot else "Market Context: None available."
@@ -114,13 +114,13 @@ class AsyncSentimentAnalyzer:
                 reason=str(data.get("reason", "")),
             )
         except Exception as exc:
-            # LLM 失败 -> 降级本地估算
+            # LLM failed -> degrade to local estimation
             result = self._analyze_local(text)
             result.reason = f"LLM fallback ({exc.__class__.__name__}): {result.reason}"
             return result
 
     # ------------------------------------------------------------------
-    # 本地规则路径 (微秒级, CPU-bound)
+    # Local Rules Path (microsecond-level, CPU-bound)
     # ------------------------------------------------------------------
     @staticmethod
     def _analyze_local(text: str) -> SentimentResult:
@@ -136,7 +136,7 @@ class AsyncSentimentAnalyzer:
         return SentimentResult("NEUTRAL", 0.30, "No strong directional keyword")
 
     # ------------------------------------------------------------------
-    # 工具
+    # Utilities
     # ------------------------------------------------------------------
     @staticmethod
     def _extract_json(s: str) -> dict:

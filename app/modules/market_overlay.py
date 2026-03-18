@@ -1,10 +1,10 @@
 """
-Module: Market Overlay (后验验证层)
+Module: Market Overlay (Post-validation Verification Layer)
 
-职责：
-  接收 FastClassifier 映射出的 tickers 列表，
-  为每个 ticker 拉取价格并在告警时点画红色箭头。
-  支持多 ticker 子图叠加，一次生成一张总图。
+Responsibilities:
+  Receive the tickers list mapped by FastClassifier,
+  fetch prices for each ticker and draw red arrows at alert time points.
+  Support multi-ticker subplot overlay, generate one overall chart per alert.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ import yfinance as yf
 
 
 def _to_utc_aware(ts: datetime) -> datetime:
-    """确保 timestamp 是 UTC aware，用于和 pandas tz-aware index 对比。"""
+    """Ensure timestamp is UTC aware, for comparison with pandas tz-aware index."""
     if ts.tzinfo is None:
         return ts.replace(tzinfo=timezone.utc)
     return ts.astimezone(timezone.utc)
 
 
 def _fetch_price(symbol: str, start: datetime, end: datetime) -> pd.Series | None:
-    """尝试拉取分钟级数据；失败则降级到更粗粒度。"""
+    """Try to fetch minute-level data; degrade to coarser granularity on failure."""
     for interval in ("1m", "5m", "15m", "1h"):
         try:
             data = yf.download(
@@ -66,14 +66,14 @@ def build_overlay_chart(
     lookback_hours: int = 12,
 ) -> str | None:
     """
-    为每个 ticker 画一张子图，告警时点标红色箭头。
-    返回生成的图片路径；全部拉取失败返回 None。
+    Draw a subplot for each ticker with a red arrow marking the alert time point.
+    Return the generated image path; return None if all fetches fail.
     """
     end_utc = alert_ts.astimezone(timezone.utc)
     start_utc = end_utc - timedelta(hours=max(1, lookback_hours))
     end_pad = end_utc + timedelta(minutes=5)
 
-    # 逐个拉取 ticker 数据（间隔 1.5 秒防 Yahoo 限流）
+    # Fetch ticker data one by one (1.5s interval to avoid Yahoo rate limit)
     ticker_data: list[tuple[str, pd.Series]] = []
     for i, sym in enumerate(tickers):
         if i > 0:
@@ -85,7 +85,7 @@ def build_overlay_chart(
     if not ticker_data:
         return None
 
-    # 子图布局
+    # Subplot layout
     n = len(ticker_data)
     cols = min(n, 2)
     rows = math.ceil(n / cols)
@@ -101,10 +101,10 @@ def build_overlay_chart(
         y = close.values
         ax.plot(x, y, linewidth=1.2, color="#1f77b4")
 
-        # 对齐告警时间到最近的 K 线点（统一用 aware datetime 对比）
+        # Align alert time to nearest candle point (use aware datetime consistently)
         def _ts_dist(i: int) -> float:
             pt = x[i].to_pydatetime()
-            # pandas 可能返回 naive 或 aware，统一处理
+            # pandas may return naive or aware, handle uniformly
             if pt.tzinfo is None:
                 pt = pt.replace(tzinfo=timezone.utc)
             return abs((pt - alert_utc).total_seconds())
@@ -125,7 +125,7 @@ def build_overlay_chart(
         ax.grid(alpha=0.2)
         ax.tick_params(axis="x", rotation=30, labelsize=8)
 
-    # 隐藏多余子图
+    # Hide extra subplots
     for idx in range(n, rows * cols):
         r, c = divmod(idx, cols)
         axes[r][c].set_visible(False)

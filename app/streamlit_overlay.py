@@ -1,7 +1,7 @@
 """
-Streamlit 页面 — 信号回看 + 后验叠加图
+Streamlit page — Signal retrospective view + post-validation overlay chart
 
-用法:
+Usage:
   streamlit run app/streamlit_overlay.py
 """
 
@@ -34,17 +34,17 @@ def _load_events(path: str, limit: int = 30) -> list[SignalEvent]:
 def main() -> None:
     st.set_page_config(page_title="LNG-Alpha Signal Overlay", layout="wide")
     st.title("LNG-Alpha Feed — Signal Validation")
-    st.caption("先预判（FastClassifier → 资产映射），再验证（后验价格叠加）。")
+    st.caption("First predict (FastClassifier → asset mapping), then verify (post-validation price overlay).")
 
     lookback = st.slider("Lookback (hours)", 1, 72, value=settings.OVERLAY_LOOKBACK_HOURS)
 
     events = _load_events(settings.DASHBOARD_JSONL)
     if not events:
-        st.warning("暂无信号数据，请先运行 `python -m app.main` 触发事件。")
+        st.warning("No signal data yet. Please run `python -m app.main` to trigger events.")
         return
 
     idx = st.selectbox(
-        "选择信号事件",
+        "Select signal event",
         range(len(events)),
         format_func=lambda i: (
             f"{events[i].ts.isoformat()} | {events[i].category} | "
@@ -54,16 +54,16 @@ def main() -> None:
     )
     event = events[idx]
 
-    # 信号详情
+    # Signal Details
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("信号详情")
+        st.subheader("Signal Details")
         st.markdown(f"**Category**: `{event.category}`")
         st.markdown(f"**Matched Rules**: `{', '.join(event.matched_rules)}`")
         st.markdown(f"**Author**: {event.author}")
         st.markdown(f"**Text**: {event.text}")
     with col2:
-        st.subheader("情绪判定")
+        st.subheader("Sentiment Analysis")
         color = {"BULLISH": "green", "BEARISH": "red"}.get(event.sentiment, "orange")
         st.markdown(
             f"<span style='color:{color}; font-size:1.8em; font-weight:bold'>"
@@ -73,9 +73,9 @@ def main() -> None:
         st.markdown(f"**Reason**: {event.reason}")
         st.markdown(f"**Mapped Tickers**: `{', '.join(event.tickers)}`")
 
-    # 叠加图
-    st.subheader("后验价格叠加 (Market Overlay)")
-    with st.spinner("拉取价格并绘图中..."):
+    # Overlay Chart
+    st.subheader("Post-validation Price Overlay (Market Overlay)")
+    with st.spinner("Fetching prices and drawing chart..."):
         ts = event.ts if event.ts.tzinfo else event.ts.replace(tzinfo=timezone.utc)
         output = build_overlay_chart(
             tickers=event.tickers,
@@ -86,7 +86,7 @@ def main() -> None:
     if output:
         st.image(output, caption=f"Overlay: {', '.join(event.tickers)}")
     else:
-        st.error("价格数据拉取失败（可能处于休市时段），尝试扩大回看窗口。")
+        st.error("Price data fetch failed (possibly during market closure). Try expanding the lookback window.")
 
 
 if __name__ == "__main__":

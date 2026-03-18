@@ -1,11 +1,11 @@
 """
-Module: Watchtower (告警 + 合规 + 后验叠加)
+Module: Watchtower (Alert + Compliance + Post-validation Overlay)
 
-职责：
-  1. 写 dashboard_feed.jsonl（给前端滚动墙）
-  2. COMPLIANCE_MODE=true -> 仅写本地 trade_signals.log
-  3. COMPLIANCE_MODE=false + token/chat_id 已填 -> 发 Telegram（文本 + overlay 图）
-  4. 后验叠加：用 SignalEvent.tickers（来自 FastClassifier）驱动 market_overlay
+Responsibilities:
+  1. Write dashboard_feed.jsonl (for frontend scrolling wall)
+  2. COMPLIANCE_MODE=true -> write local trade_signals.log only
+  3. COMPLIANCE_MODE=false + token/chat_id filled -> send Telegram (text + overlay image)
+  4. Post-validation overlay: use SignalEvent.tickers (from FastClassifier) to drive market_overlay
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class Watchtower:
         self.bot = Bot(token=settings.TELEGRAM_BOT_TOKEN) if settings.TELEGRAM_BOT_TOKEN else None
 
     # ------------------------------------------------------------------
-    # Emoji 映射
+    # Emoji Mapping
     # ------------------------------------------------------------------
     @staticmethod
     def _emoji(event: SignalEvent) -> str:
@@ -40,7 +40,7 @@ class Watchtower:
         return "🟡"
 
     # ------------------------------------------------------------------
-    # 文件写入
+    # File Writing
     # ------------------------------------------------------------------
     @staticmethod
     async def _append_jsonl(path: str, payload: dict) -> None:
@@ -50,15 +50,15 @@ class Watchtower:
             await f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     # ------------------------------------------------------------------
-    # 主发布流程
+    # Main Publishing Pipeline
     # ------------------------------------------------------------------
     async def publish(self, event: SignalEvent) -> None:
         payload = event.model_dump(mode="json")
 
-        # 1. 始终写 dashboard feed
+        # 1. Always write dashboard feed
         await self._append_jsonl(settings.DASHBOARD_JSONL, payload)
 
-        # 2. 后验叠加（用 classifier 映射出的 tickers，非硬编码）
+        # 2. Post-validation overlay (use classifier-mapped tickers, not hardcoded)
         overlay_path = await asyncio.to_thread(
             build_overlay_chart,
             event.tickers,
@@ -67,12 +67,12 @@ class Watchtower:
             settings.OVERLAY_LOOKBACK_HOURS,
         )
 
-        # 3. 合规模式 -> 仅写日志
+        # 3. Compliance mode -> write log only
         if settings.COMPLIANCE_MODE:
             await self._append_jsonl(settings.COMPLIANCE_LOG, payload)
             return
 
-        # 4. Telegram 推送
+        # 4. Telegram push
         if self.bot and settings.TELEGRAM_CHAT_ID:
             emj = self._emoji(event)
             tickers_str = ", ".join(event.tickers)

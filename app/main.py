@@ -1,26 +1,26 @@
 """
-LNG-Alpha-Feed 主流程 — 漏斗架构 (The Funnel Architecture)
+LNG-Alpha-Feed Main Pipeline — Funnel Architecture
 
-数据流:
+Data Flow:
   Bluesky Jetstream (firehose)
     │
-    ▼  Harvester (WhitelistFilter + 跨品种关键词预筛)
-  异步队列
+    ▼  Harvester (WhitelistFilter + Cross-commodity keyword pre-filtering)
+  Async Queue
     │
-    ▼  第一层 (毫秒级, CPU)
-  FastClassifier  ──噪音──> 丢弃
+    ▼  Layer 1 (millisecond, CPU)
+  FastClassifier  ──noise──> discard
     │
-    │  输出: category + tickers
-    ▼  第二层 (秒级, IO, 异步)
+    │  Output: category + tickers
+    ▼  Layer 2 (second, IO, async)
   AsyncSentimentAnalyzer
     │
-    │  输出: BULLISH / BEARISH / NEUTRAL
+    │  Output: BULLISH / BEARISH / NEUTRAL
     ▼
   Watchtower  ──> Telegram / Log / Dashboard + Overlay
 
-用法:
-  python -m app.main              # 实时模式（连接 Jetstream firehose）
-  python -m app.main --test       # 测试模式（用硬编码推文验证管线）
+Usage:
+  python -m app.main              # Live mode (connect to Jetstream firehose)
+  python -m app.main --test       # Test mode (verify pipeline with hardcoded tweets)
 """
 
 import asyncio
@@ -43,7 +43,7 @@ logger = logging.getLogger("lng-alpha-feed")
 
 
 # =========================================================================
-# 漏斗处理器
+# Funnel Processor
 # =========================================================================
 
 async def process_text(
@@ -54,32 +54,32 @@ async def process_text(
     watchtower: Watchtower,
     market_state_manager: MarketStateManager = None,
 ) -> None:
-    """单条文本走完整个漏斗。"""
-    # ---- 第一层: 毫秒级分类 ----
+    """Process a single text through the complete funnel."""
+    # ---- Layer 1: millisecond-level classification ----
     signal = classifier.classify(text)
     if signal is None:
-        return  # FastClassifier 噪音过滤已丢弃
+        return  # FastClassifier noise filter already discarded
 
     logger.info(
-        "✅ 命中  Category=%s  Tickers=%s  Rules=%s  Text=%.60s",
+        "✅ Hit  Category=%s  Tickers=%s  Rules=%s  Text=%.60s",
         signal.category,
         signal.tickers,
         signal.matched_rules,
         text,
     )
 
-    # ---- 第二层: 异步情绪分析 ----
-    # 获取实时无延迟的市场状态快照
+    # ---- Layer 2: async sentiment analysis ----
+    # Get real-time, zero-latency market state snapshot
     state_snapshot = market_state_manager.get_current_state() if market_state_manager else None
     result = await sentiment_engine.analyze(text, state_snapshot)
     logger.info(
-        "🧠 情绪  %s (%.0f%%)  %s",
+        "🧠 Sentiment  %s (%.0f%%)  %s",
         result.sentiment,
         result.confidence * 100,
         result.reason,
     )
 
-    # ---- 组装 SignalEvent ----
+    # ---- Assemble SignalEvent ----
     event = SignalEvent(
         ts=datetime.now(timezone.utc),
         author=author,
@@ -92,13 +92,13 @@ async def process_text(
         reason=result.reason,
     )
 
-    # ---- 第三层: 告警 + 后验叠加 ----
+    # ---- Layer 3: alert + post-validation overlay ----
     await watchtower.publish(event)
-    logger.info("🚀 已发布 → %s | %s", event.category, event.sentiment)
+    logger.info("🚀 Published → %s | %s", event.category, event.sentiment)
 
 
 # =========================================================================
-# Worker: 从队列消费消息，走漏斗
+# Worker: consume messages from queue, process through funnel
 # =========================================================================
 
 async def worker(
@@ -121,7 +121,7 @@ async def worker(
 
 
 # =========================================================================
-# 实时模式: Jetstream firehose → 队列 → workers
+# Live Mode: Jetstream firehose → queue → workers
 # =========================================================================
 
 async def run_live() -> None:
@@ -136,7 +136,7 @@ async def run_live() -> None:
     market_state_manager = MarketStateManager()
     harvester = JetstreamClient(output_queue=queue)
 
-    # 启动 harvester + state polling + workers
+    # Start harvester + state polling + workers
     tasks = [
         asyncio.create_task(market_state_manager.start()),
         asyncio.create_task(harvester.start()),
@@ -147,7 +147,7 @@ async def run_live() -> None:
 
 
 # =========================================================================
-# 测试模式: 硬编码推文验证管线
+# Test Mode: hardcoded tweets to verify pipeline
 # =========================================================================
 
 async def run_test() -> None:
@@ -162,7 +162,7 @@ async def run_test() -> None:
     # For testing, we can simply launch the state manager as a background task
     # and wait a brief moment for phase 1 bootstrap.
     bg_task = asyncio.create_task(market_state_manager.start())
-    await asyncio.sleep(2) # Give it time to fetch Yahoo data
+    await asyncio.sleep(2)  # Give it time to fetch Yahoo data
 
     test_tweets = [
         ("Just a webinar about climate change targets.", "@noise_account"),
@@ -180,7 +180,7 @@ async def run_test() -> None:
 
 
 # =========================================================================
-# 入口
+# Entry Point
 # =========================================================================
 
 if __name__ == "__main__":
