@@ -9,8 +9,13 @@ This system treats news as a **state-conditional signal**: an identical facility
 - [x] **Real-time Firehose Ingestion**: Bluesky Jetstream integration & async queuing.
 - [x] **Event Filtration**: Millisecond keyword & whitelist filtering engine (`FastClassifier`).
 - [x] **Telemetry & Alerting**: Telegram Bot integration & Streamlit overlay dashboard (`Watchtower`).
-- [x] **Market State Injection**: Background async polling for inventory/Curve data (`MarketStateManager`).
+- [x] **Market State Injection**: Background async polling with EIA weekly storage percentile & 20-day rolling volatility (`MarketStateManager`).
 - [x] **State-Conditional LLM Engine**: Prompt engineering and dynamic context injection for the sentiment engine.
+- [ ] **EU Inventory (AGSI)**: European gas storage data integration for TTF-side state conditioning.
+- [ ] **Local SLM Migration**: Transition from external LLM API to fine-tuned local 7B-14B model.
+- [ ] **Event Deduplication**: Clustering and lifecycle management for duplicate/superseding signals.
+- [ ] **Per-Region Sentiment Output**: Structured US/EU/Asia directional bifurcation beyond the `reason` field.
+- [ ] **Signal Backtesting**: P&L attribution and confidence calibration framework.
 
 ## The "Alpha-Discovery" Project Ecosystem
 

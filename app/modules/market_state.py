@@ -10,9 +10,10 @@ Module: MarketStateManager (Cold Path - 市场状态注入)
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, time
+from datetime import datetime, timezone, time, timedelta
 from typing import Optional
 
+import aiohttp
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -85,9 +86,14 @@ class MarketStateManager:
         # 内存单例，原子的快照变量
         self._current_state = MarketStateSnapshot()
         self._lock = asyncio.Lock()  # 仅在写入时保护，也可以不加靠 GIL，但最好加
-        
+
         # 运行时状态
         self._deep_baseline_ready = False
+
+        # EIA 库存缓存
+        self._eia_history: list[tuple[str, float]] = []   # [(period_str, value_bcf), ...]
+        self._eia_last_period: Optional[str] = None        # 已获取的最新期数
+        self._eia_last_fetch: Optional[datetime] = None    # 上次 API 调用时间
 
     # -------------------------------------------------------------
     # 读 API (Hot Path 调用)
@@ -107,7 +113,7 @@ class MarketStateManager:
         
         # Phase 1: 冷启动，抓取近期数据（可能会阻塞几秒，但保证基础上下文即刻可用）
         await self._poll_yahoo(days=settings.BASELINE_DAYS_FAST)
-        # TODO: 加入 EIA / AGSI 第一阶段抓取
+        await self._poll_eia(years=1)  # 1 年数据，快速启动
         
         logger.info("MarketStateManager 阶段1完成. 开启轮询守候.")
         
@@ -125,6 +131,7 @@ class MarketStateManager:
                 # 否则即使是平时，我们也用 fast baseline 的天数兜底
                 fetch_days = 7 if self._deep_baseline_ready else settings.BASELINE_DAYS_FAST
                 await self._poll_yahoo(days=fetch_days)
+                await self._poll_eia()
             except Exception:
                 logger.exception("MarketStateManager 轮询异常")
 
@@ -158,6 +165,7 @@ class MarketStateManager:
         try:
             # 此处演示调用：实际情况这里的计算量较大，如果阻塞太久可以用 asyncio.to_thread 包裹
             await self._poll_yahoo(days=settings.BASELINE_DAYS_DEEP)
+            await self._poll_eia(years=settings.EIA_SEASONAL_YEARS)  # 5 年精算
             self._deep_baseline_ready = True
             logger.info("MarketStateManager 阶段2完成: 深度基线热切换完毕.")
         except Exception:
@@ -199,14 +207,18 @@ class MarketStateManager:
                     continue
                     
                 current_price = float(close_prices.iloc[-1])
-                
-                # 计算非常简易的波动率分位数：当前价格在过去 X 天的百位点（0~1）
-                # (实际应该是算日收益率标准差的分位数，这里为结构演示用价格分位代替)
-                min_p = float(close_prices.min())
-                max_p = float(close_prices.max())
-                rp = 0.5
-                if max_p > min_p:
-                    rp = (current_price - min_p) / (max_p - min_p)
+
+                # 波动率分位数：20 日滚动收益率标准差在历史窗口中的分位 (0~1)
+                returns = close_prices.pct_change().dropna()
+                if len(returns) < 20:
+                    rp = 0.5  # 数据不足，取中性值
+                else:
+                    rolling_vol = returns.rolling(window=20).std().dropna()
+                    if rolling_vol.empty:
+                        rp = 0.5
+                    else:
+                        current_vol = float(rolling_vol.iloc[-1])
+                        rp = float((rolling_vol < current_vol).sum() / len(rolling_vol))
 
                 new_assets[symbol] = AssetMetrics(
                     symbol=symbol,
@@ -240,4 +252,119 @@ class MarketStateManager:
             )
         
         logger.debug(f"更新 Market State: {list(new_assets.keys())}")
+
+    # -------------------------------------------------------------
+    # EIA Natural Gas Weekly Storage
+    # -------------------------------------------------------------
+    async def _poll_eia(self, years: int = 5) -> None:
+        """
+        从 EIA API v2 拉取美国天然气周度库存数据，
+        计算季节性分位数 (当前库存 vs 同一 calendar week 的 5 年历史)。
+        """
+        if not settings.EIA_API_KEY:
+            logger.debug("EIA_API_KEY 未配置，跳过库存拉取")
+            return
+
+        # 缓存检查：距上次请求不足 EIA_POLL_INTERVAL 秒 → 跳过
+        now = datetime.now(timezone.utc)
+        if self._eia_last_fetch and (now - self._eia_last_fetch).total_seconds() < settings.EIA_POLL_INTERVAL:
+            return
+
+        start_date = (now - timedelta(days=365 * years)).strftime("%Y-%m-%d")
+        params = {
+            "api_key": settings.EIA_API_KEY,
+            "frequency": "weekly",
+            "data[0]": "value",
+            "facets[process][]": "SWO",
+            "facets[duoarea][]": "R48",
+            "sort[0][column]": "period",
+            "sort[0][direction]": "desc",
+            "start": start_date,
+            "length": 5000,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    settings.EIA_API_URL,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    resp.raise_for_status()
+                    payload = await resp.json()
+
+            rows = payload.get("response", {}).get("data", [])
+            if not rows:
+                logger.warning("EIA API 返回空数据")
+                return
+
+            # 解析并合并到历史缓存 (按 period 去重，保留最新值)
+            existing = {p: v for p, v in self._eia_history}
+            for row in rows:
+                period = row.get("period", "")
+                value = row.get("value")
+                if period and value is not None:
+                    try:
+                        existing[period] = float(value)
+                    except (ValueError, TypeError):
+                        continue
+
+            self._eia_history = sorted(existing.items(), key=lambda x: x[0])
+            self._eia_last_period = self._eia_history[-1][0] if self._eia_history else None
+            self._eia_last_fetch = now
+
+            # 计算季节性分位数
+            percentile = self._calculate_seasonal_percentile()
+            if percentile is not None:
+                async with self._lock:
+                    old = self._current_state
+                    self._current_state = MarketStateSnapshot(
+                        timestamp=datetime.now(timezone.utc),
+                        assets=old.assets,
+                        us_inventory_percentile=percentile,
+                        eu_inventory_percentile=old.eu_inventory_percentile,
+                    )
+                logger.info(f"EIA 库存更新: US Inventory Percentile = {percentile:.1f}%ile ({len(self._eia_history)} weeks cached)")
+
+        except Exception as e:
+            logger.warning(f"EIA API 拉取失败: {e}")
+
+    def _calculate_seasonal_percentile(self) -> Optional[float]:
+        """
+        将当前库存与同一 ISO calendar week 的历史观测值对比，
+        返回 0~100 的季节性分位数。
+        """
+        if not self._eia_history:
+            return None
+
+        latest_period, latest_value = self._eia_history[-1]
+        try:
+            latest_dt = datetime.strptime(latest_period, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+        target_week = latest_dt.isocalendar()[1]
+
+        # 收集同一 calendar week 的历史值 (排除最新一期自身)
+        same_week_values = []
+        for period, value in self._eia_history[:-1]:
+            try:
+                dt = datetime.strptime(period, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if dt.isocalendar()[1] == target_week:
+                same_week_values.append(value)
+
+        # 至少需要 3 个同周观测值；不足则用全量历史兜底
+        if len(same_week_values) < 3:
+            all_values = [v for _, v in self._eia_history[:-1]]
+            if not all_values:
+                return None
+            comparison = all_values
+        else:
+            comparison = same_week_values
+
+        # 分位数: 有多少历史值低于当前值
+        below = sum(1 for v in comparison if v < latest_value)
+        return (below / len(comparison)) * 100
 

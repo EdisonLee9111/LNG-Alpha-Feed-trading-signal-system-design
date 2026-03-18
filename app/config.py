@@ -117,7 +117,7 @@ class Settings:
     
     # 库存数据外部 API 预留
     EIA_API_KEY: str = os.getenv("EIA_API_KEY", "").strip()
-    EIA_API_URL: str = "https://api.eia.gov/v2/natural-gas/stor/sum/data/"
+    EIA_API_URL: str = "https://api.eia.gov/v2/natural-gas/stor/wkly/data/"
     
     AGSI_API_KEY: str = os.getenv("AGSI_API_KEY", "").strip()
     AGSI_API_URL: str = "https://agsi.gie.eu/api"
@@ -132,6 +132,10 @@ class Settings:
     # 深度回溯的时间范围 (构建历史分位数基线)
     BASELINE_DAYS_FAST: int = 90    # 冷启动第一阶段：快速抓过去 90 天
     BASELINE_DAYS_DEEP: int = 365 * 3 # 稳定后异步精算：抓过去 3 年
+
+    # EIA 库存数据轮询
+    EIA_POLL_INTERVAL: int = 3600       # 秒，EIA 数据每周更新，最多每小时检查一次
+    EIA_SEASONAL_YEARS: int = 5         # 季节性分位数回溯年数
 
 
     # LLM (留空 = 跳过 NLP 层，只走 FastClassifier)
